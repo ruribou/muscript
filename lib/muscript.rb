@@ -1,3 +1,7 @@
+if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("4.0")
+  raise "muscript requires Ruby >= 4.0 (running #{RUBY_VERSION})"
+end
+
 module Muscript
   SAMPLE_RATE = 44_100
 end

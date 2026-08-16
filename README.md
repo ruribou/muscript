@@ -62,7 +62,7 @@ Terraformのように、テキストに書いたものを再現できるワー�
 ## 試す
 
 ```
-# Ruby 3.4 以降が必要です。現時点では実行時のgem依存はありません。
+# Ruby 4.0 以降が必要です。現時点では実行時のgem依存はありません。
 git clone https://github.com/ruribou/muscript.git
 cd muscript
 ruby examples/hello.rb
