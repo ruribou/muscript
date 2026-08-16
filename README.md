@@ -1,6 +1,6 @@
 # muscript
 
-**Music as Code — 実行可能な楽譜と、そのビルドツールチェーン**
+Rubyで曲の骨組みを書いて、WAVにするための小さな実験です。
 
 ```ruby
 require "muscript"
@@ -31,53 +31,50 @@ $ ruby examples/hello.rb
 Hello, DnB | 2 tracks | 5.91s | peak 3.3 dBFS (normalized to -1dBFS) -> out/hello.wav
 ```
 
-## これは何?
+## muscriptについて
 
-muscriptは、Ruby DSLで曲の構造を宣言的に記述し、オーディオにビルドするツールです。
-ライブコーディング環境ではなく、GUIのDAWでもありません。
+muscriptは、Ruby DSLで曲の構造を書き、オーディオとして書き出すためのツールです。リズムやベースライン、コード進行といった「曲の設計図」をコードで持てたら便利そうだ、というところから始めました。
 
-楽譜は人類最古の宣言的DSLです。音の高さ・長さ・強弱を宣言し、実行(演奏)は奏者に委ねる。
-muscriptはそれを機械が実行できる形にして、Terraformがインフラにもたらしたワークフローを音楽に持ち込みます。
+ライブコーディング環境でも、GUIのDAWでもありません。制作中にパラメータを触り続ける代わりに、曲の構造をテキストとして残し、必要なときにレンダリングします。楽譜に近い感覚かもしれません。
 
-- **宣言的** — 曲は「操作の手順」ではなく「構造」として記述する
-- **決定論的** — 同じコード + 同じ素材は、同じWAVになる(乱数はすべてシード付き)
-- **Git-native** — 差分レビュー、ブランチでアレンジ違い、CIでレンダリング
-- **音楽理論がファーストクラス** — key / scale / degree / コード進行をコードで扱う
+目指しているのは、たとえば次のような作り方です。
 
-| Terraform | muscript |
-|---|---|
-| HCLで望む状態を宣言 | DSLで曲の構造を宣言 |
-| `terraform plan` | `mus plan` — 音を出さずに差分を音楽的語彙で表示 |
-| `terraform apply` | `mus render` |
-| 冪等性 | 決定論(同じコード = 同じWAV) |
-| provider | 出力先: WAV / MIDI / REAPER |
-| module | パターン・進行・ミックスチェーンの再利用 |
+- 曲を操作の履歴ではなく、構造として書く
+- 同じコードと素材からは同じWAVを出す（乱数を使う場合もシードを固定する）
+- Gitで差分を見たり、アレンジ違いをブランチで試したりする
+- key / scale / degree / コード進行を、値として素直に扱う
 
-## 到達目標
+Terraformのように、テキストに書いたものを再現できるワークフローを音楽にも持ち込みたい、というイメージです。ただし、インフラの概念をそのまま音楽に当てはめることが目的ではありません。
+
+## まず目指すところ
 
 > プログラマがコードだけで、既存曲のStemを使ったRemixを1曲完成させられる
 
-ロードマップは [Issues](../../issues) と [Milestones](../../milestones) にあります。
+細かな予定は [Issues](../../issues) と [Milestones](../../milestones) に置いています。
 
-## 思想
+## いまの方針
 
-1. **聴くまでのループを遅くする機能は追加しない。** DAWのノブの即時性に対するmuscriptの回答は、キャッシュと部分レンダリングと`mus watch`。
-2. **DSPは発明しない。** デコードはffmpeg、タイムストレッチはRubber Band。巨人の肩に乗る。
-3. **DAWを置き換えない。** アレンジと構造の8割をコードで書き、最後の磨きはREAPERやLogicでどうぞ。エクスポートは一方向。
-4. **DSLは薄い糖衣。** 中身はプレーンなRubyオブジェクトと、JSONの中間表現(IR)。魔法は使わない。
+1. 試して聴くまでの時間は、できるだけ短く保つ。キャッシュ、部分レンダリング、`mus watch`はそのためにあります。
+2. 音声処理を一から作り直さない。デコードにはffmpeg、タイムストレッチにはRubber Bandを使います。
+3. DAWの代わりにはならない。アレンジや構造はコードで書き、仕上げはREAPERやLogicでやる、という役割分担を想定しています。
+4. DSLは薄くする。中身はRubyオブジェクトとJSONの中間表現（IR）で、挙動を追いやすくしておきます。
 
-## 動かす
+## 試す
 
 ```
-# 必要なもの: Ruby 3.4+ (現時点で実行時のgem依存はゼロ)
+# Ruby 3.4 以降が必要です。現時点では実行時のgem依存はありません。
 git clone https://github.com/ruribou/muscript.git
 cd muscript
 ruby examples/hello.rb
 afplay out/hello.wav   # macOS
 ```
 
-ステム加工が入ると ffmpeg と rubberband が必要になります(`brew install ffmpeg rubberband`)。
+ステムを加工する機能を使う場合は、ffmpeg と rubberband も入れてください。
 
-## Status
+```
+brew install ffmpeg rubberband
+```
 
-実験段階です。作者がこのツールでRemixを1曲完成させるまで、APIは容赦なく変わります。
+## 状態
+
+まだ実験段階です。作者自身がこれでRemixを1曲完成させるまでは、APIを大きく変えることがあります。
