@@ -75,6 +75,19 @@ afplay out/hello.wav   # macOS
 brew install ffmpeg rubberband
 ```
 
+## 開発
+
+テストはRSpecです。開発用のgemだけBundlerで入れます。
+
+```
+bundle install
+bundle exec rspec
+```
+
+`spec/muscript/` は音名・波形・WAV・ミックスといった部品ごとのテスト、`spec/integration/` は
+`examples/` を実際にレンダリングする受け入れテストです。「同じコードからは同じWAVが出る」
+という決定論も、ここで確かめています。
+
 ## 状態
 
 まだ実験段階です。作者自身がこれでRemixを1曲完成させるまでは、APIを大きく変えることがあります。
