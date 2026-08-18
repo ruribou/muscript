@@ -69,11 +69,46 @@ ruby examples/hello.rb
 afplay out/hello.wav   # macOS
 ```
 
-ステムを加工する機能を使う場合は、ffmpeg と rubberband も入れてください。
+ステムを読み込むにはffmpegが要ります。これから足すタイムストレッチではrubberbandも使います。
 
 ```
 brew install ffmpeg rubberband
 ```
+
+## ステムを読む
+
+`audio` に音声ファイルを渡すと、そのままトラックの素材になります。形式は問いません（WAV/AIFF/mp3/flac...）。
+デコードと44.1kHzへのリサンプルはffmpegに任せているので、muscript側は波形を受け取って混ぜるだけです。
+
+```ruby
+song = Muscript.project "Stem Remix" do
+  bpm 174
+
+  track :vocals do
+    audio "stems/vocals.wav"
+    gain(-3)
+    pan 0.2
+  end
+
+  track :drums do
+    audio "stems/drums.flac"
+  end
+end
+```
+
+ステレオのまま持つので、素材の左右は潰れません。`pan` の意味は素材によって変わります。
+
+- 内蔵音源（モノ）: 等パワーパン。センターでは左右に -3dB ずつ振り分ける
+- ステム（ステレオ）: バランス。センターでは素通しで、振った側の反対チャンネルだけを絞る
+
+手持ちのファイルで試すときは、`stems/` に置いて次を実行します（`stems/` はGit管理外です）。
+
+```
+ruby examples/stem.rb
+afplay out/stem.wav   # macOS
+```
+
+`stems/` が空のときは、muscript自身の音でデモ用のステムを書き出してから、それを読み直します。
 
 ## 開発
 
@@ -86,7 +121,8 @@ bundle exec rspec
 
 `spec/muscript/` は音名・波形・WAV・ミックスといった部品ごとのテスト、`spec/integration/` は
 `examples/` を実際にレンダリングする受け入れテストです。「同じコードからは同じWAVが出る」
-という決定論も、ここで確かめています。
+という決定論も、ここで確かめています。ffmpegが入っていない環境では、ステム関連のテストは
+落とさずにスキップします。
 
 ## 状態
 

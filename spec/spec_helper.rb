@@ -15,4 +15,9 @@ RSpec.configure do |config|
   config.filter_run_when_matching :focus
 
   config.include Muscript::SpecHelpers
+
+  # :ffmpeg を付けたspecは、ffmpegが無ければ落とさずスキップする。
+  config.before(:each, :ffmpeg) do
+    skip "ffmpeg が無い環境なのでスキップ" unless Muscript::SpecHelpers::FFMPEG_AVAILABLE
+  end
 end

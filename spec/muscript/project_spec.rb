@@ -77,6 +77,51 @@ RSpec.describe Muscript::Project do
       end
     end
 
+    it "ステレオのイベントは左右をそのまま置く（混ぜて潰さない）" do
+      project.add_track(stereo_track_with(Array.new(100, 0.5), Array.new(100, 0.25)))
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].first / 32_767.0).to be_within(0.001).of(0.5)
+        expect(wav[:right].first / 32_767.0).to be_within(0.001).of(0.25)
+      end
+    end
+
+    it "ステレオのpanはバランスとして効く（センターは素通し）" do
+      track = stereo_track_with(Array.new(100, 0.5), Array.new(100, 0.5))
+      track.pan = 0.5
+      project.add_track(track)
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].first / 32_767.0).to be_within(0.001).of(0.25) # 左だけ絞られる
+        expect(wav[:right].first / 32_767.0).to be_within(0.001).of(0.5)
+      end
+    end
+
+    it "ステレオにもgainが効く" do
+      track = stereo_track_with(Array.new(100, 0.5), Array.new(100, 0.5))
+      track.gain_db = -6.0
+      project.add_track(track)
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].first / 32_767.0).to be_within(0.005).of(0.25)
+        expect(wav[:right].first / 32_767.0).to be_within(0.005).of(0.25)
+      end
+    end
+
+    it "モノとステレオのトラックを同じミックスに混ぜられる" do
+      project.add_track(track_with(Array.new(100, 0.2)))                          # 等パワーパン
+      project.add_track(stereo_track_with(Array.new(100, 0.1), Array.new(100, 0.3)))
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].first / 32_767.0).to be_within(0.001).of((0.2 * Math.sqrt(0.5)) + 0.1)
+        expect(wav[:right].first / 32_767.0).to be_within(0.001).of((0.2 * Math.sqrt(0.5)) + 0.3)
+      end
+    end
+
     it "0dBFSを超えたら-1dBFSまで下げる（クリップさせない）" do
       track = track_with(Array.new(100, 1.0))
       track.gain_db = 6.0
