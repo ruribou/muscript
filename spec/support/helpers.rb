@@ -1,6 +1,11 @@
+require "open3"
+
 module Muscript
   # specから音を「読む」ための道具。耳の代わりに使う。
   module SpecHelpers
+    # ffmpegが無い環境でも他のspecは回したい。audio系だけ落とす判断に使う。
+    FFMPEG_AVAILABLE = Muscript::Audio.available?
+
     # 一時ディレクトリの中でブロックを実行し、パスを組むための小さな糖衣。
     def in_tmpdir
       Dir.mktmpdir("muscript-spec") { |dir| yield dir }
@@ -54,6 +59,30 @@ module Muscript
     # イベントを直接持つトラック（DSLを通さずレンダラだけを試したい時に使う）。
     def track_with(buffer, name: :test, at: 0)
       Muscript::Track.new(name).tap { |t| t.add(at, buffer) }
+    end
+
+    # 左右で別の中身を持つトラック（ステム由来のイベントを模したもの）。
+    def stereo_track_with(left, right, name: :test, at: 0)
+      Muscript::Track.new(name).tap { |t| t.add_stereo(at, left, right) }
+    end
+
+    # デコードに食わせる素材。指定した周波数のサイン波を返す。
+    def sine(freq, seconds, amplitude: 0.5, sample_rate: Muscript::SAMPLE_RATE)
+      length = (sample_rate * seconds).to_i
+      Array.new(length) { |i| amplitude * Math.sin(2 * Math::PI * freq * i / sample_rate) }
+    end
+
+    # ffmpegで別形式に変換する。「形式を選ばない」を測るために使う。
+    def transcode(src, dest, *ffmpeg_args)
+      _, status = Open3.capture2e("ffmpeg", "-nostdin", "-v", "error", "-y", "-i", src, *ffmpeg_args, dest)
+      raise "ffmpeg failed to write #{dest}" unless status.success?
+
+      dest
+    end
+
+    # 2つの波形のいちばん大きなズレ。16bitの丸め誤差(約3.1e-5)と比べるために使う。
+    def max_diff(a, b)
+      a.each_with_index.map { |v, i| (v - b[i]).abs }.max
     end
   end
 end

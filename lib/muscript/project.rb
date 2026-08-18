@@ -27,12 +27,24 @@ module Muscript
       tracks.each do |t|
         g = t.gain_linear
         pl, pr = t.pan_gains
+        bl, br = t.balance_gains
+        gl = g * bl
+        gr = g * br
         t.events.each do |e|
           at = e[:at]
-          e[:buf].each_with_index do |v, i|
-            s = v * g
-            left[at + i]  += s * pl
-            right[at + i] += s * pr
+          if (r = e[:right])
+            # ステレオ素材は左右をそのまま流し、gainとバランスだけを掛ける
+            l = e[:buf]
+            l.each_index do |i|
+              left[at + i]  += l[i] * gl
+              right[at + i] += r[i] * gr
+            end
+          else
+            e[:buf].each_with_index do |v, i|
+              s = v * g
+              left[at + i]  += s * pl
+              right[at + i] += s * pr
+            end
           end
         end
       end

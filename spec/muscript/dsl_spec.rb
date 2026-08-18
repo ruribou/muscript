@@ -102,6 +102,64 @@ RSpec.describe Muscript::DSL do
     end
   end
 
+  describe "audio", :ffmpeg do
+    # 素材の代わりに、muscript自身が書いたWAVをステムとして読ませる。
+    def with_stem(left, right = left)
+      in_tmpdir do |dir|
+        yield Muscript::Wav.write(File.join(dir, "stem.wav"), left, right)
+      end
+    end
+
+    it "ステムを頭に1イベントとして置く" do
+      with_stem(sine(440, 0.1)) do |path|
+        song = Muscript.project("s") { track(:vocals) { audio path } }
+        events = song.tracks.first.events
+
+        expect(events.length).to eq 1
+        expect(events.first[:at]).to eq 0
+        expect(events.first[:buf].length).to eq (Muscript::SAMPLE_RATE * 0.1).to_i
+      end
+    end
+
+    it "左右を別のバッファとして持つ" do
+      with_stem(sine(440, 0.1, amplitude: 0.5), sine(440, 0.1, amplitude: 0.25)) do |path|
+        event = Muscript.project("s") { track(:vocals) { audio path } }.tracks.first.events.first
+
+        expect(event[:buf].map(&:abs).max).to be_within(0.001).of(0.5)
+        expect(event[:right].map(&:abs).max).to be_within(0.001).of(0.25)
+      end
+    end
+
+    it "gain / pan と組み合わせられる" do
+      with_stem(sine(440, 0.1)) do |path|
+        song = Muscript.project("s") do
+          track :vocals do
+            audio path
+            gain(-6)
+            pan 0.5
+          end
+        end
+
+        expect(song.tracks.first.gain_db).to eq(-6)
+        expect(song.tracks.first.balance_gains).to eq [0.5, 1.0]
+      end
+    end
+
+    it "読み込んだClipを返す（長さを見たい時のため）" do
+      with_stem(sine(440, 0.25)) do |path|
+        clip = nil
+        Muscript.project("s") { track(:vocals) { clip = audio path } }
+
+        expect(clip.duration).to be_within(0.001).of(0.25)
+      end
+    end
+
+    it "無いファイルを拒否する" do
+      expect { Muscript.project("s") { track(:vocals) { audio "stems/nope.wav" } } }
+        .to raise_error(Muscript::Audio::Error, /audio file not found/)
+    end
+  end
+
   describe "pattern" do
     def drum_events(bars: 1, tempo: 120, &block)
       Muscript.project("s") do

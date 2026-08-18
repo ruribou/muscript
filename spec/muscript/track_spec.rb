@@ -17,6 +17,21 @@ RSpec.describe Muscript::Track do
     end
   end
 
+  describe "#add_stereo" do
+    it "左右で別のバッファを持つ（ステム由来のイベント）" do
+      left  = [0.1, 0.2]
+      right = [0.3, 0.4]
+      track.add_stereo(100, left, right)
+
+      expect(track.events).to eq [{ at: 100, buf: left, right: right }]
+    end
+
+    it "左右の長さが違うバッファを拒否する" do
+      expect { track.add_stereo(0, [0.1, 0.2], [0.3]) }
+        .to raise_error(ArgumentError, /same length/)
+    end
+  end
+
   describe "#end_sample" do
     it "イベントが無ければ0" do
       expect(track.end_sample).to eq 0
@@ -27,6 +42,12 @@ RSpec.describe Muscript::Track do
       track.add(500, Array.new(100, 0.0))   # 先に終わる
       track.add(2000, Array.new(50, 0.0))   # これが終端
       expect(track.end_sample).to eq 2050
+    end
+
+    it "ステレオのイベントも数える" do
+      track.add(0, Array.new(100, 0.0))
+      track.add_stereo(1000, Array.new(500, 0.0), Array.new(500, 0.0))
+      expect(track.end_sample).to eq 1500
     end
   end
 
@@ -83,6 +104,36 @@ RSpec.describe Muscript::Track do
       gains = [-1.0, -0.5, 0.0, 0.5, 1.0].map { |p| track.pan = p; track.pan_gains }
       expect(gains.map(&:first)).to eq gains.map(&:first).sort.reverse
       expect(gains.map(&:last)).to eq gains.map(&:last).sort
+    end
+  end
+
+  describe "#balance_gains" do
+    it "センターでは左右とも素通し（素材の音量を変えない）" do
+      expect(track.balance_gains).to eq [1.0, 1.0]
+    end
+
+    it "右に振ると左だけを絞る" do
+      track.pan = 0.5
+      expect(track.balance_gains).to eq [0.5, 1.0]
+    end
+
+    it "左に振ると右だけを絞る" do
+      track.pan = -0.25
+      expect(track.balance_gains).to eq [1.0, 0.75]
+    end
+
+    it "振り切ると反対側が無音になる" do
+      track.pan = 1.0
+      expect(track.balance_gains).to eq [0.0, 1.0]
+      track.pan = -1.0
+      expect(track.balance_gains).to eq [1.0, 0.0]
+    end
+
+    it "どこに振っても素材より大きくはしない" do
+      [-1.0, -0.5, 0.0, 0.3, 1.0].each do |pan|
+        track.pan = pan
+        expect(track.balance_gains.max).to be <= 1.0
+      end
     end
   end
 end

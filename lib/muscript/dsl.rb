@@ -35,6 +35,15 @@ module Muscript
         @track.pan = value
       end
 
+      # audio "stems/vocals.wav"
+      # ステム(音声ファイル)をトラックの頭に置く。形式は問わない(ffmpegが読めるもの)。
+      # 44.1kHz・ステレオへの変換はffmpeg任せで、Ruby側はバッファを受け取るだけ。
+      def audio(path)
+        clip = Audio.load(path)
+        @track.add_stereo(0, clip.left, clip.right)
+        clip
+      end
+
       # notes %w[E2 _ G2 _], step: "1/8"
       # "_" は休符。時間は拍(beat)で計算し、サンプルへの変換は最後に一度だけ。
       def notes(list, step: "1/16")
