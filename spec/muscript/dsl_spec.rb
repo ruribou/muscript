@@ -145,18 +145,152 @@ RSpec.describe Muscript::DSL do
       end
     end
 
-    it "読み込んだClipを返す（長さを見たい時のため）" do
+    it "読み込んだステムを返す（長さを見たい時のため）" do
       with_stem(sine(440, 0.25)) do |path|
-        clip = nil
-        Muscript.project("s") { track(:vocals) { clip = audio path } }
+        stem = nil
+        Muscript.project("s") { track(:vocals) { stem = audio path } }
 
-        expect(clip.duration).to be_within(0.001).of(0.25)
+        expect(stem.clip.duration).to be_within(0.001).of(0.25)
       end
     end
 
     it "無いファイルを拒否する" do
       expect { Muscript.project("s") { track(:vocals) { audio "stems/nope.wav" } } }
         .to raise_error(Muscript::Audio::Error, /audio file not found/)
+    end
+  end
+
+  describe "warp_to / transpose", :ffmpeg do
+    # 素材の代わり。1小節ぶんのサイン波を、指定のテンポで書く。
+    def with_loop(bpm, bars: 1, freq: 440, name: "loop")
+      in_tmpdir do |dir|
+        wave = sine(freq, bars * 4 * 60.0 / bpm)
+        yield Muscript::Wav.write(File.join(dir, "#{name}.wav"), wave, wave), wave.length
+      end
+    end
+
+    def stem_length(song) = song.tracks.first.events.first[:buf].length
+
+    it "bpm: を渡さなければ、今までどおりそのまま鳴らす" do
+      with_loop(140) do |path|
+        song = Muscript.project("s") { bpm 174; track(:loop) { audio path } }
+
+        expect(stem_length(song)).to eq (4 * 60.0 / 140 * Muscript::SAMPLE_RATE).round
+      end
+    end
+
+    describe "揃える", :rubberband do
+      it "bpm: を渡すと、プロジェクトのBPMに合わせて伸び縮みする" do
+        with_loop(140) do |path|
+          song = Muscript.project("s") { bpm 174; track(:loop) { audio path, bpm: 140 } }
+
+          expect(stem_length(song)).to eq (4 * 60.0 / 174 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
+      it "BPMの違うループ2本が、同じ小節数で同じ長さに揃う" do
+        in_tmpdir do |dir|
+          a = Muscript::Wav.write(File.join(dir, "a.wav"), *([sine(440, 2 * 4 * 60.0 / 140)] * 2))
+          b = Muscript::Wav.write(File.join(dir, "b.wav"), *([sine(330, 2 * 4 * 60.0 / 90)] * 2))
+
+          song = Muscript.project("s") do
+            bpm 174
+            track(:a) { audio a, bpm: 140 }
+            track(:b) { audio b, bpm: 90 }
+          end
+
+          lengths = song.tracks.map { |t| t.events.first[:buf].length }
+          expect(lengths.uniq.length).to eq 1
+          expect(lengths.first).to be_within(1).of(2 * 4 * 60.0 / 174 * Muscript::SAMPLE_RATE)
+        end
+      end
+
+      it "warp: false なら、テンポを覚えたまま伸ばさない" do
+        with_loop(140) do |path|
+          song = Muscript.project("s") { bpm 174; track(:loop) { audio path, bpm: 140, warp: false } }
+
+          expect(stem_length(song)).to eq (4 * 60.0 / 140 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
+      it "warp_to で揃え先を上書きできる（半テン）" do
+        with_loop(140) do |path|
+          song = Muscript.project("s") do
+            bpm 174
+            track(:loop) do
+              audio path, bpm: 140
+              warp_to 87
+            end
+          end
+
+          expect(stem_length(song)).to eq (4 * 60.0 / 87 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
+      it "warp_to / transpose は audio より前に書いても効く" do
+        with_loop(140) do |path|
+          song = Muscript.project("s") do
+            bpm 174
+            track(:loop) do
+              warp_to 87
+              audio path, bpm: 140
+            end
+          end
+
+          expect(stem_length(song)).to eq (4 * 60.0 / 87 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
+      it "warp_to を書いたのに素材のテンポが無ければ落ちる" do
+        with_loop(140) do |path|
+          expect { Muscript.project("s") { bpm 174; track(:loop) { audio path; warp_to 87 } } }
+            .to raise_error(ArgumentError, /warp_to 87 needs the source tempo/)
+        end
+      end
+    end
+
+    describe "transpose", :rubberband do
+      it "半音単位で音の高さを動かす（長さはそのまま）" do
+        with_loop(174, freq: 440) do |path, frames|
+          song = Muscript.project("s") do
+            bpm 174
+            track(:loop) do
+              audio path
+              transpose 12
+            end
+          end
+
+          event = song.tracks.first.events.first
+          expect(event[:buf].length).to eq frames
+          expect(amplitude_at(event[:buf], 880)).to be > 0.3
+          expect(amplitude_at(event[:buf], 440)).to be < 0.05
+        end
+      end
+
+      it "transpose 0 なら rubberband を呼ばない" do
+        with_loop(174, freq: 440) do |path|
+          stub_const("Muscript::Warp::RUBBERBAND", "muscript-no-such-rubberband")
+          song = Muscript.project("s") { bpm 174; track(:loop) { audio path; transpose 0 } }
+
+          expect(amplitude_at(song.tracks.first.events.first[:buf], 440)).to be > 0.3
+        end
+      end
+
+      it "伸縮とピッチシフトは同じトラックで一緒に掛けられる" do
+        with_loop(140, freq: 440) do |path|
+          song = Muscript.project("s") do
+            bpm 174
+            track(:loop) do
+              audio path, bpm: 140
+              transpose 12
+            end
+          end
+
+          event = song.tracks.first.events.first
+          expect(event[:buf].length).to eq (4 * 60.0 / 174 * Muscript::SAMPLE_RATE).round
+          expect(amplitude_at(event[:buf], 880)).to be > 0.3
+        end
+      end
     end
   end
 

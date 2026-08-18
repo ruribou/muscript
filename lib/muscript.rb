@@ -9,6 +9,8 @@ end
 require_relative "muscript/note"
 require_relative "muscript/wav"
 require_relative "muscript/audio"
+require_relative "muscript/warp"
+require_relative "muscript/stem"
 require_relative "muscript/synth"
 require_relative "muscript/track"
 require_relative "muscript/project"
