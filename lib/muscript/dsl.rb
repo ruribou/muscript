@@ -24,6 +24,7 @@ module Muscript
         @project = project
         @track = track
         @stems = []
+        @edits = []
         @warp_to = nil
         @transpose = 0.0
       end
@@ -67,11 +68,38 @@ module Muscript
         @transpose = semitones
       end
 
+      # slice bars: 8, from: 5
+      # 5小節目から8小節を切り出す。ここでいう小節は、そのステムが鳴っているテンポの小節
+      # (warpしたなら曲のテンポ、warp: false なら素材のテンポ)。
+      def slice(bars: nil, beats: nil, from: 1)
+        @edits << Edit.slice(bars:, beats:, from:)
+      end
+
+      # trim from: 3          頭の2小節を落として最後まで
+      # trim from: 2, to: 6   2小節目から6小節目の手前まで(= 4小節)
+      def trim(from: 1, to: nil)
+        @edits << Edit.trim(from:, to:)
+      end
+
+      # loop times: 4   4回鳴らす
+      # loop bars: 16   16小節ぶんになるまで繰り返す(端は途中で切る)
+      # track ブロックの中の loop は Kernel#loop ではなくこちら。
+      def loop(times: nil, bars: nil, beats: nil)
+        @edits << Edit.loop(times:, bars:, beats:)
+      end
+
       # track ブロックを抜けたところで、ためたステムを読む。
       # warp_to / transpose はブロックのどこに書いても効くように、ここでまとめて適用する。
+      # slice / trim / loop も同じくトラックの設定で、書いた順にステム全部へ掛かる。
       def resolve_stems!
+        if @stems.empty? && @edits.any?
+          raise ArgumentError,
+                "track #{@track.name.inspect} has no audio to slice / trim / loop (they do not apply to notes yet)"
+        end
+
         @stems.each do |stem|
-          clip = stem.resolve(project_bpm: @project.bpm, warp_to: @warp_to, semitones: @transpose)
+          clip = stem.resolve(project_bpm: @project.bpm, warp_to: @warp_to,
+                              semitones: @transpose, edits: @edits)
           @track.add_stereo(0, clip.left, clip.right)
         end
       end

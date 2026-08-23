@@ -7,6 +7,39 @@ RSpec.describe Muscript::Audio do
     end
   end
 
+  describe "Clip" do
+    # 1拍=50サンプル(120BPM・サンプルレート100)。数字を目で追えるようにしている。
+    subject(:clip) { clip_of(ramp(400), ramp(400, from: 1000)) }
+
+    it "長さを拍で言える（どのテンポの拍かは呼ぶ側が決める）" do
+      expect(clip.beats(bpm: 120)).to eq 8.0
+      expect(clip.beats(bpm: 60)).to eq 4.0
+    end
+
+    it "サンプル位置で切り出す" do
+      cut = clip.cut(100, 50)
+
+      expect(cut.left).to eq ramp(50, from: 100)
+      expect(cut.right).to eq ramp(50, from: 1100)
+    end
+
+    it "素材の終わりを超えた分は、ある分だけ返す" do
+      expect(clip.cut(350, 100).length).to eq 50
+    end
+
+    it "指定のサンプル数になるまで繰り返して、端で切る" do
+      looped = clip_of(ramp(10)).repeat(25)
+
+      expect(looped.length).to eq 25
+      expect(looped.left).to eq ramp(10) + ramp(10) + ramp(5)
+    end
+
+    it "空のクリップは繰り返せない" do
+      expect { clip_of([]).repeat(10) }
+        .to raise_error(described_class::Error, /cannot repeat an empty clip/)
+    end
+  end
+
   describe ".load", :ffmpeg do
     it "書いたWAVをそのまま読み戻す（16bitの丸め誤差の範囲で一致）" do
       wave = sine(440, 0.2)

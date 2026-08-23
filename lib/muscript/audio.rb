@@ -18,6 +18,22 @@ module Muscript
     Clip = Data.define(:path, :left, :right, :sample_rate) do
       def length = left.length
       def duration = length / sample_rate.to_f
+
+      # このクリップの長さを拍で見る。どのテンポの拍かを決めるのは呼ぶ側(Stem)。
+      def beats(bpm:) = duration * bpm / 60.0
+
+      # サンプル位置で切り出す。小節や拍からの翻訳は Edit の仕事。
+      def cut(at, count)
+        with(left: left[at, count] || [], right: right[at, count] || [])
+      end
+
+      # count サンプルぶんになるまで繰り返して、端で切る。
+      def repeat(count)
+        raise Error, "cannot repeat an empty clip: #{path}" if length.zero?
+
+        whole, rest = count.divmod(length)
+        with(left: (left * whole) + left[0, rest], right: (right * whole) + right[0, rest])
+      end
     end
 
     module_function

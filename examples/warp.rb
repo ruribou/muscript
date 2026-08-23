@@ -28,11 +28,10 @@ def ensure_loop(dir, file, bars:, &block)
 end
 
 # render は最後に余韻を0.5秒足す。ループとして使う素材はそれだと繋がらないので、
-# 小節ぴったりで切っておく(クリップのトリムそのものは #4 で入る)。
+# 小節ぴったりで切っておく(DSLの slice と同じ Edit を、素材のファイルに対して使っている)。
 def trim(path, bars:, bpm:)
-  clip = Muscript::Audio.load(path)
-  frames = (bars * 4 * 60.0 / bpm * Muscript::SAMPLE_RATE).round
-  Muscript::Wav.write(path, clip.left[0, frames], clip.right[0, frames])
+  clip = Muscript::Edit.slice(bars:).apply(Muscript::Audio.load(path), bpm:)
+  Muscript::Wav.write(path, clip.left, clip.right)
 end
 
 break_path = ensure_loop(stems_dir, BREAK, bars: 4) do

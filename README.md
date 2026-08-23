@@ -151,6 +151,57 @@ Warp Test | 2 tracks | 6.02s | peak -2.0 dBFS -> out/warp.wav
 
 トラック単位のキャッシュや世代管理はこれからで、ここはその最初の一段です。
 
+## 切り出して、繰り返す
+
+ステムを丸ごと使うことはあまりありません。「この8小節だけ欲しい」「16小節ぶんループさせたい」を、
+秒ではなく小節と拍で書きます。
+
+```ruby
+song = Muscript.project "Remix" do
+  bpm 174
+
+  track :break do
+    audio "stems/amen.wav", bpm: 140
+    slice bars: 8, from: 5   # 5小節目から8小節
+    loop times: 4            # 4回鳴らす（= 32小節）
+  end
+
+  track :bass do
+    audio "stems/bass.wav", bpm: 174
+    trim from: 3             # 頭の2小節を落として最後まで
+    loop bars: 32            # 32小節ぶんになるまで繰り返す
+  end
+end
+```
+
+- 小節番号は1から数えます。`from: 5` は5小節目の頭です。
+- `slice` は長さの指定です。`bars:` と `beats:` は足し合わせられます（`bars: 1, beats: 2` で6拍）。
+- `trim` は区間の指定です。`to:` は「その小節の手前まで」なので、`from: 2, to: 6` は4小節になります。
+- `loop` は `times:`（回数）か `bars:`（長さ）のどちらかです。長さで指定したときは端で切ります。
+- 書いた順に掛かります。`slice` してから `loop` すれば、切り出した8小節が繰り返されます。
+
+ここでいう「1小節」がどのテンポの1小節かは、そのステムが結局どの速さで鳴っているかで決まります。
+
+- テンポを揃えたステム: 揃えた先のテンポ（`warp_to` があればそちら、無ければプロジェクトのBPM）
+- `warp: false` のステム: 素材のテンポ
+- テンポを教えていないステム: プロジェクトのBPMに乗せて置かれたものとして扱います
+
+素材より長く切ろうとしたときは、素材が何小節あるかを添えて止まります。
+
+```
+cannot cut 16 bars from bar 5: stems/amen.wav is 8 bars at 174 BPM
+```
+
+```
+$ ruby examples/clip.rb
+demo-phrase-174 | 1 tracks | 16.91s | peak -3.0 dBFS -> stems/demo-phrase-174.wav
+demo-drums-174 | 1 tracks | 5.91s | peak 3.0 dBFS (normalized to -1dBFS) -> stems/demo-drums-174.wav
+Clip Test | 2 tracks | 44.64s | peak -0.6 dBFS -> out/clip.wav
+```
+
+クリップはまだ曲の頭にしか置けません。小節位置への配置とセクションは
+[#5](../../issues/5)、切れ目のフェードは [#6](../../issues/6) です。
+
 ## 開発
 
 テストはRSpecです。開発用のgemだけBundlerで入れます。

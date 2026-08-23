@@ -69,6 +69,15 @@ module Muscript
       Muscript::Track.new(name).tap { |t| t.add_stereo(at, left, right) }
     end
 
+    # ffmpegを通さずに作るClip。切り出しや繰り返しの計算だけを見たい時に使う。
+    # サンプルレートを落として、拍とサンプルの対応を目で追えるようにしている。
+    def clip_of(left, right = left, path: "spec.wav", sample_rate: 100)
+      Muscript::Audio::Clip.new(path:, left:, right:, sample_rate:)
+    end
+
+    # 位置がそのまま値になっているバッファ。切り出した場所を値で確かめるために使う。
+    def ramp(length, from: 0) = Array.new(length) { |i| (from + i).to_f }
+
     # デコードに食わせる素材。指定した周波数のサイン波を返す。
     def sine(freq, seconds, amplitude: 0.5, sample_rate: Muscript::SAMPLE_RATE)
       length = (sample_rate * seconds).to_i
