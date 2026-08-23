@@ -69,7 +69,7 @@ ruby examples/hello.rb
 afplay out/hello.wav   # macOS
 ```
 
-ステムを読み込むにはffmpegが要ります。これから足すタイムストレッチではrubberbandも使います。
+ステムを読み込むにはffmpegが、テンポやキーを合わせるにはrubberbandが要ります。
 
 ```
 brew install ffmpeg rubberband
@@ -110,6 +110,47 @@ afplay out/stem.wav   # macOS
 
 `stems/` が空のときは、muscript自身の音でデモ用のステムを書き出してから、それを読み直します。
 
+## テンポとキーを合わせる
+
+BPMの違うステムをプロジェクトのテンポに揃えます。`audio` に素材のテンポを渡すと、そのぶんだけ伸び縮みします。
+
+```ruby
+song = Muscript.project "Remix" do
+  bpm 174
+
+  track :break do
+    audio "stems/amen.wav", bpm: 140    # 140 -> 174
+  end
+
+  track :vocals do
+    audio "stems/vocals.wav", bpm: 90   # 90 -> 174
+    transpose 2                         # 素材はDキー、曲はEキー
+  end
+end
+```
+
+- `bpm:` は素材側の事実です。書かなければ今までどおり、そのままの速さで鳴ります。BPMの自動検出はしません。
+- `warp_to` で揃え先を変えられます（`warp_to 87` なら半分のテンポ）。既定はプロジェクトのBPMです。
+- `transpose` は半音単位のピッチシフトで、長さは変わりません。いまはステムだけに効きます。
+- テンポは書き残したいけれど伸ばしたくない時は `audio "...", bpm: 140, warp: false` です。
+
+伸縮とピッチシフトは [Rubber Band](https://breakfastquay.com/rubberband/) CLI（R3エンジン）に任せています。`--time` と `--pitch` は一度に渡すので、素材を二度通すことはありません。
+
+出てくるサンプル数は `round(元の長さ × 素材のBPM ÷ 揃え先のBPM)` ちょうどです。同じ小節数の素材なら、もとのテンポが違っても同じ長さに揃います。
+
+```
+$ ruby examples/warp.rb
+demo-break-140 | 1 tracks | 7.21s | peak 3.0 dBFS (normalized to -1dBFS) -> stems/demo-break-140.wav
+demo-bass-90 | 1 tracks | 10.80s | peak -2.7 dBFS -> stems/demo-bass-90.wav
+Warp Test | 2 tracks | 6.02s | peak -2.0 dBFS -> out/warp.wav
+```
+
+### 中間ファイルのキャッシュ
+
+伸ばした結果は `.muscript/cache/` に置いて、次からは使い回します。キーは素材の中身のハッシュ・比率・半音・rubberbandの版なので、どれかが変われば計算し直します。上の例だと、1回目は0.96秒、2回目は0.23秒です。
+
+トラック単位のキャッシュや世代管理はこれからで、ここはその最初の一段です。
+
 ## 開発
 
 テストはRSpecです。開発用のgemだけBundlerで入れます。
@@ -121,8 +162,8 @@ bundle exec rspec
 
 `spec/muscript/` は音名・波形・WAV・ミックスといった部品ごとのテスト、`spec/integration/` は
 `examples/` を実際にレンダリングする受け入れテストです。「同じコードからは同じWAVが出る」
-という決定論も、ここで確かめています。ffmpegが入っていない環境では、ステム関連のテストは
-落とさずにスキップします。
+という決定論も、ここで確かめています。ffmpegやrubberbandが入っていない環境では、それを使う
+テストは落とさずにスキップします。
 
 ## 状態
 

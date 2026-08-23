@@ -1,5 +1,6 @@
 out/
 stems/
+.muscript/
 .DS_Store
 /.bundle/
 /vendor/bundle/

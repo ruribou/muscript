@@ -6,6 +6,9 @@ module Muscript
     # ffmpegが無い環境でも他のspecは回したい。audio系だけ落とす判断に使う。
     FFMPEG_AVAILABLE = Muscript::Audio.available?
 
+    # warp系も同じ。R3の無い古いrubberbandは「無い」と同じ扱い。
+    RUBBERBAND_AVAILABLE = Muscript::Warp.available?
+
     # 一時ディレクトリの中でブロックを実行し、パスを組むための小さな糖衣。
     def in_tmpdir
       Dir.mktmpdir("muscript-spec") { |dir| yield dir }
@@ -78,6 +81,20 @@ module Muscript
       raise "ffmpeg failed to write #{dest}" unless status.success?
 
       dest
+    end
+
+    # rubberbandの代わりをする使い捨てのスクリプト。--version にだけ答えて、あとは失敗する。
+    # 「入っていない/古い/落ちた」をrubberband無しで再現するための偽物。
+    def fake_rubberband(dir, version: "4.0.0", message: "boom")
+      path = File.join(dir, "fake-rubberband")
+      File.write(path, <<~SH)
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "#{version}"; exit 0; fi
+        echo "#{message}" >&2
+        exit 1
+      SH
+      File.chmod(0o755, path)
+      path
     end
 
     # 2つの波形のいちばん大きなズレ。16bitの丸め誤差(約3.1e-5)と比べるために使う。

@@ -12,7 +12,9 @@ module Muscript
 
       def track(name, &block)
         t = Track.new(name)
-        TrackDSL.new(@project, t).instance_eval(&block)
+        dsl = TrackDSL.new(@project, t)
+        dsl.instance_eval(&block)
+        dsl.resolve_stems!
         @project.add_track(t)
       end
     end
@@ -21,6 +23,9 @@ module Muscript
       def initialize(project, track)
         @project = project
         @track = track
+        @stems = []
+        @warp_to = nil
+        @transpose = 0.0
       end
 
       def synth(shape)
@@ -36,12 +41,39 @@ module Muscript
       end
 
       # audio "stems/vocals.wav"
+      # audio "stems/amen.wav", bpm: 140     # 素材のテンポ。プロジェクトのBPMに合わせて伸縮する
+      # audio "stems/amen.wav", bpm: 140, warp: false  # テンポは覚えておくが、伸ばさない
+      #
       # ステム(音声ファイル)をトラックの頭に置く。形式は問わない(ffmpegが読めるもの)。
       # 44.1kHz・ステレオへの変換はffmpeg任せで、Ruby側はバッファを受け取るだけ。
-      def audio(path)
-        clip = Audio.load(path)
-        @track.add_stereo(0, clip.left, clip.right)
-        clip
+      # 実際に読むのは track ブロックを抜けた後。warp_to / transpose を先に集めてから、
+      # 伸縮とピッチシフトをrubberbandに一度で渡すため。
+      def audio(path, bpm: nil, warp: true)
+        stem = Stem.new(path, bpm:, warp:)
+        @stems << stem
+        stem
+      end
+
+      # warp_to 87
+      # 揃える先のテンポ。既定はプロジェクトのBPM。半分/倍のテンポで鳴らしたい時に使う。
+      def warp_to(bpm)
+        @warp_to = bpm
+      end
+
+      # transpose 2
+      # ステムを半音単位でピッチシフトする(キー合わせ)。長さは変わらない。
+      # 内蔵音源の notes には効かない(MIDI側のtransposeは #16)。
+      def transpose(semitones)
+        @transpose = semitones
+      end
+
+      # track ブロックを抜けたところで、ためたステムを読む。
+      # warp_to / transpose はブロックのどこに書いても効くように、ここでまとめて適用する。
+      def resolve_stems!
+        @stems.each do |stem|
+          clip = stem.resolve(project_bpm: @project.bpm, warp_to: @warp_to, semitones: @transpose)
+          @track.add_stereo(0, clip.left, clip.right)
+        end
       end
 
       # notes %w[E2 _ G2 _], step: "1/8"

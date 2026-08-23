@@ -1,3 +1,4 @@
+require "fileutils"
 require "open3"
 
 module Muscript
@@ -24,13 +25,40 @@ module Muscript
     # 形式は問わない(WAV/AIFF/mp3/flac...)。ffmpegが読めるものならそのまま読める。
     # モノラルの素材は左右に複製される(ffmpegの等パワー変換なので音量感は変わらない)。
     def load(path, sample_rate: SAMPLE_RATE)
-      file = File.expand_path(path.to_s)
-      raise Error, "audio file not found: #{path}" unless File.file?(file)
+      file = source_file(path)
 
       left, right = decode(file, sample_rate)
       raise Error, "no audio decoded from #{path}" if left.empty?
 
       Clip.new(path: path.to_s, left:, right:, sample_rate:)
+    end
+
+    # 素材のパスを絶対パスにして、読む前に存在だけ確かめる。
+    def source_file(path)
+      file = File.expand_path(path.to_s)
+      raise Error, "audio file not found: #{path}" unless File.file?(file)
+
+      file
+    end
+
+    # 素材を 44.1kHz / ステレオ / 32bit float のWAVに揃えて書き出す。
+    # rubberbandに渡す前の下ごしらえ。16bitに落とさないので、伸ばす前に精度を失わない。
+    def export_wav(path, dest, sample_rate: SAMPLE_RATE)
+      file = source_file(path)
+      FileUtils.mkdir_p(File.dirname(dest))
+
+      out, status = Open3.capture2e(FFMPEG, "-nostdin", "-v", "error", "-y",
+                                    "-i", file,
+                                    "-map", "0:a:0",
+                                    "-c:a", "pcm_f32le",
+                                    "-ac", "2",
+                                    "-ar", sample_rate.to_s,
+                                    dest)
+      raise Error, "ffmpeg failed to convert #{path}: #{out.to_s.strip}" unless status.success?
+
+      dest
+    rescue Errno::ENOENT
+      raise Error, "ffmpeg not found (#{FFMPEG}). Install it with `brew install ffmpeg`"
     end
 
     # ffmpegが使えるか。無ければステム関連の機能は使えない。

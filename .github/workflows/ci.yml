@@ -15,8 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # ステムのデコードはffmpeg頼み。無いとaudio系のspecは丸ごとスキップされる。
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # デコードはffmpeg、伸縮はrubberband頼み。無ければそのspecは丸ごとスキップされる。
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg rubberband-cli
 
       # lib/muscript.rb が Ruby >= 4.0 を要求する。
       # パッチは固定せず最新の4.0.xで回して、上がった時に気づけるようにする。
