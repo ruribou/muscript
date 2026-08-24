@@ -1,7 +1,10 @@
 module Muscript
-  # クリップ操作(slice / trim / loop)。
+  # クリップ操作(slice / trim / loop / fill)。
   # DSLに書いた時点で拍に翻訳して憶えておき、サンプルに直すのは素材のテンポが決まってから。
   # ここでいう「小節」は、そのクリップが鳴っているテンポの小節(warp後なら揃えた先のテンポ)。
+  #
+  # apply に渡す bpm はそのクリップが鳴っているテンポ、song_bpm は曲のテンポ。
+  # 物差しが曲側なのは fill だけ(埋めるのは素材の小節ではなく、曲のセクションだから)。
   module Edit
     # 数サンプルの不足は黙って詰める。伸縮の丸めで1サンプルずれることがあるため(0.05ms未満)。
     SLACK = 2
@@ -34,6 +37,11 @@ module Muscript
       Repeat.new(times: nil, length: Beats.length(bars:, beats:))
     end
 
+    # fill beats: 64   その長さぶんになるまで繰り返す。長さは曲の拍で数える。
+    def fill(beats:)
+      Fill.new(length: Beats.length(beats:))
+    end
+
     def count(times)
       return times if times.is_a?(Integer) && times >= 1
 
@@ -54,7 +62,7 @@ module Muscript
     # 長さは「頼まれた拍数ちょうど」にする。切り出す場所が変わっても長さが1サンプル揺れないので、
     # 繰り返しても曲のグリッドからずれない(切り出し位置の丸めは素材を読む側だけの話にする)。
     Cut = Data.define(:from, :length) do
-      def apply(clip, bpm:)
+      def apply(clip, bpm:, song_bpm: bpm)
         at = Beats.samples(from, bpm:, sample_rate: clip.sample_rate)
         raise ArgumentError, Edit.too_short("start at bar #{Edit.bar_number(from)}", clip, bpm) if at >= clip.length
 
@@ -70,7 +78,7 @@ module Muscript
 
     # 繰り返し。times 回、または length(拍)ぶんになるまで。
     Repeat = Data.define(:times, :length) do
-      def apply(clip, bpm:)
+      def apply(clip, bpm:, song_bpm: bpm)
         total = if times
                   clip.length * times
                 else
@@ -78,6 +86,14 @@ module Muscript
                 end
 
         clip.repeat(total)
+      end
+    end
+
+    # セクションを埋める繰り返し(bars: を省いた loop)。数えるのは曲の拍。
+    # 素材が別のテンポで鳴っていても(warp_to や warp: false)、埋める先は曲のセクションだから。
+    Fill = Data.define(:length) do
+      def apply(clip, bpm:, song_bpm: bpm)
+        clip.repeat(Beats.samples(length, bpm: song_bpm, sample_rate: clip.sample_rate))
       end
     end
   end

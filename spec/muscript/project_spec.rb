@@ -22,6 +22,21 @@ RSpec.describe Muscript::Project do
     end
   end
 
+  describe "#add_section" do
+    it "書いた順に前のセクションの後ろへ並べる" do
+      project.add_section(:intro, bars: 8)
+      project.add_section(:drop, bars: 16)
+
+      expect(project.sections.map(&:name)).to eq %i[intro drop]
+      expect(project.section(:drop).start).to eq 32.0
+    end
+
+    it "セクションが無ければ、曲の尺も0のまま" do
+      expect(project.sections).to be_empty
+      expect(project.arrangement_end_sample).to eq 0
+    end
+  end
+
   describe "#render" do
     it "いちばん後ろのイベントの後に0.5秒の余韻を足した長さで書く" do
       project.add_track(track_with(Array.new(1000, 0.0), at: 4000))
@@ -29,6 +44,28 @@ RSpec.describe Muscript::Project do
       in_tmpdir do |dir|
         path = silent_render(project, File.join(dir, "a.wav"))
         expect(read_wav(path)[:left].length).to eq 5000 + (Muscript::SAMPLE_RATE * 0.5).to_i
+      end
+    end
+
+    it "書いたセクションの尺は、音が鳴っていなくても出す" do
+      project.add_section(:intro, bars: 1) # 120BPMの1小節 = 2秒
+      project.add_track(track_with(Array.new(1000, 0.0)))
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].length)
+          .to eq (2.0 * Muscript::SAMPLE_RATE).to_i + (Muscript::SAMPLE_RATE * 0.5).to_i
+      end
+    end
+
+    it "セクションより後ろまで鳴っていれば、鳴っているほうに合わせる" do
+      project.add_section(:intro, bars: 1)
+      project.add_track(track_with(Array.new(1000, 0.0), at: 3 * Muscript::SAMPLE_RATE))
+
+      in_tmpdir do |dir|
+        wav = read_wav(silent_render(project, File.join(dir, "a.wav")))
+        expect(wav[:left].length)
+          .to eq (3 * Muscript::SAMPLE_RATE) + 1000 + (Muscript::SAMPLE_RATE * 0.5).to_i
       end
     end
 
@@ -158,6 +195,16 @@ RSpec.describe Muscript::Project do
         expect { project.render(path) }
           .to output(/\Atest song \| 1 tracks \| 0\.50s \| peak -9\.0 dBFS -> #{Regexp.escape(path)}\n\z/)
           .to_stdout
+      end
+    end
+
+    it "構造を書いた曲は、セクションの数も報告する" do
+      project.add_section(:intro, beats: 1)
+      project.add_section(:drop, beats: 1)
+
+      in_tmpdir do |dir|
+        expect { project.render(File.join(dir, "a.wav")) }
+          .to output(/\Atest song \| 0 tracks \| 2 sections \| 1\.50s \|/).to_stdout
       end
     end
 

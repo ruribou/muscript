@@ -33,6 +33,122 @@ RSpec.describe Muscript::DSL do
     end
   end
 
+  describe "section / at" do
+    # 24小節の曲。イントロ8小節のあと、9小節目からドロップ16小節。
+    def arranged(&block)
+      Muscript.project("s") do
+        bpm 120
+        section :intro, bars: 8
+        section :drop, bars: 16
+        track(:t, &block)
+      end
+    end
+
+    def bar(number) = ((number - 1) * 4 * 60.0 / 120 * Muscript::SAMPLE_RATE).round
+    def positions(song) = song.tracks.first.events.map { |e| e[:at] }
+
+    it "セクションを書いた順に並べる（ドロップは9小節目から）" do
+      song = arranged { notes %w[E1] }
+
+      expect(song.sections.map(&:name)).to eq %i[intro drop]
+      expect(song.sections.map(&:start)).to eq [0.0, 32.0]
+    end
+
+    it "at を書かなければ、今までどおり曲の頭から鳴らす" do
+      expect(positions(arranged { notes %w[E1] })).to eq [bar(1)]
+    end
+
+    it "at bar: で小節位置を指す（曲の頭から数える）" do
+      expect(positions(arranged { at bar: 17; notes %w[E1] })).to eq [bar(17)]
+    end
+
+    it "at :drop でセクションの頭から鳴らす" do
+      expect(positions(arranged { at :drop; notes %w[E1] })).to eq [bar(9)]
+    end
+
+    it "at :drop, bar: 3 でセクションの3小節目に置く" do
+      expect(positions(arranged { at :drop, bar: 3; notes %w[E1] })).to eq [bar(11)]
+    end
+
+    it "パターンもセクションの頭から並ぶ" do
+      song = arranged { at :drop; pattern(bars: 1) { kick "x-x-" } }
+
+      expect(positions(song)).to eq [bar(9), bar(9.5)]
+    end
+
+    it "1本のトラックを複数のセクションに置ける" do
+      song = arranged do
+        at :intro
+        notes %w[E1]
+        at :drop
+        notes %w[G1]
+      end
+
+      expect(positions(song)).to eq [bar(1), bar(9)]
+    end
+
+    it "bars: を省いたパターンは、セクションの長さを埋める" do
+      song = arranged { at :drop; pattern { kick "x---" } }
+
+      expect(positions(song).length).to eq 16 # ドロップの16小節ぶん
+      expect(positions(song).first).to eq bar(9)
+      expect(positions(song).last).to eq bar(24)
+    end
+
+    it "セクションの途中に置いたら、残りだけを埋める" do
+      song = arranged { at :drop, bar: 13; pattern { kick "x---" } }
+
+      expect(positions(song)).to eq [bar(21), bar(22), bar(23), bar(24)]
+    end
+
+    it "bars: を書いたら、セクションの中でもそのぶんだけ鳴らす" do
+      song = arranged { at :drop; pattern(bars: 2) { kick "x---" } }
+
+      expect(positions(song)).to eq [bar(9), bar(10)]
+    end
+
+    it "セクションからはみ出す音は鳴らさない（埋めるとき）" do
+      song = Muscript.project("s") do
+        bpm 120
+        section :half, beats: 6 # 1.5小節
+        track(:t) { at :half; pattern { kick "xxxx" } } # 1拍ごと
+      end
+
+      expect(song.tracks.first.events.length).to eq 6 # 6拍ぶんで止まる
+    end
+
+    it "セクションの外では、bars: を省いたパターンは1小節だけ鳴らす" do
+      song = arranged { at bar: 5; pattern { kick "x---" } }
+
+      expect(positions(song)).to eq [bar(5)]
+    end
+
+    it "知らないセクションを指したら、知っている名前を添えて落ちる" do
+      expect { arranged { at :build } }
+        .to raise_error(ArgumentError, "unknown section :build (known sections: :intro, :drop)")
+    end
+
+    it "セクションを書く前に at で指したら、どこに書くかを教えて落ちる" do
+      expect { Muscript.project("s") { track(:t) { at :drop } } }
+        .to raise_error(ArgumentError, /sections are declared before the tracks/)
+    end
+
+    it "セクションからはみ出す位置を指したら、セクションの長さを添えて落ちる" do
+      expect { arranged { at :intro, bar: 9 } }
+        .to raise_error(ArgumentError, "cannot start at bar 9 of section :intro: it is 8 bars long")
+    end
+
+    it "同じ名前のセクションを二度書いたら落ちる" do
+      expect { Muscript.project("s") { section :intro, bars: 8; section :intro, bars: 4 } }
+        .to raise_error(ArgumentError, "section :intro is already defined")
+    end
+
+    it "セクションの外で長さの無い loop を書いたら、何を書けばいいか教えて落ちる" do
+      expect { arranged { audio "stems/nope.wav"; loop } }
+        .to raise_error(ArgumentError, /loop needs times: or bars: here/)
+    end
+  end
+
   describe "notes" do
     def bass_events(list, step: "1/16", tempo: 120)
       Muscript.project("s") do
@@ -406,6 +522,95 @@ RSpec.describe Muscript::DSL do
         end
 
         expect(clip(song).length).to eq bar_frames(2)
+      end
+    end
+
+    it "at で区切ると、slice / loop はその区切りのステムだけに掛かる" do
+      with_ramp(bars: 4) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          section :intro, bars: 4
+          section :drop, bars: 4
+          track :loop do
+            at :intro
+            audio path
+            slice bars: 1
+            at :drop
+            audio path
+            slice bars: 2
+          end
+        end
+
+        events = song.tracks.first.events
+        expect(events.map { |e| e[:buf].length }).to eq [bar_frames(1), bar_frames(2)]
+        expect(events.map { |e| e[:at] }).to eq [0, bar_frames(4)] # ドロップは5小節目
+      end
+    end
+
+    it "loop（長さ指定なし）でセクションの残りを埋める" do
+      with_ramp(bars: 2) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          section :drop, bars: 7
+          track :loop do
+            at :drop
+            audio path
+            loop
+          end
+        end
+
+        expect(clip(song).length).to eq bar_frames(7)
+      end
+    end
+
+    it "セクションの途中からなら、残りだけを埋める" do
+      with_ramp(bars: 2) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          section :drop, bars: 8
+          track :loop do
+            at :drop, bar: 3
+            audio path
+            loop
+          end
+        end
+
+        expect(clip(song).length).to eq bar_frames(6)
+      end
+    end
+
+    it "セクションを埋める loop は曲の小節で数える（素材が半分のテンポで鳴っていても）" do
+      with_ramp(bars: 4, tempo: 87) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          section :drop, bars: 8
+          track :loop do
+            at :drop
+            audio path, bpm: 87, warp: false
+            loop
+          end
+        end
+
+        # 曲の8小節ぶん。素材の小節(87BPM)で数えていたら倍の長さになる
+        expect(clip(song).length).to eq bar_frames(8)
+      end
+    end
+
+    it "ステムの無い区切りで slice を書いたら落ちる" do
+      with_ramp(bars: 4) do |path|
+        expect do
+          Muscript.project("s") do
+            bpm 174
+            section :intro, bars: 4
+            section :drop, bars: 4
+            track :loop do
+              at :intro
+              audio path
+              at :drop
+              slice bars: 1
+            end
+          end
+        end.to raise_error(ArgumentError, /track :loop has no audio to slice \/ trim \/ loop/)
       end
     end
 

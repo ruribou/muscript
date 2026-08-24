@@ -25,7 +25,10 @@ module Muscript
       clip = Audio.load(Warp.process(@path, time_ratio: time_ratio(project_bpm, warp_to),
                                             semitones: semitones))
 
-      @clip = edits.reduce(clip) { |c, edit| edit.apply(c, bpm: @playback_bpm) }
+      @clip = edits.reduce(clip) do |c, edit|
+        # 小節を数える物差しは2つ渡す。素材の小節(playback_bpm)と、曲の小節(project_bpm)。
+        edit.apply(c, bpm: @playback_bpm, song_bpm: project_bpm.to_f)
+      end
     end
 
     private
