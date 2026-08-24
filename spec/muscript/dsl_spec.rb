@@ -294,6 +294,134 @@ RSpec.describe Muscript::DSL do
     end
   end
 
+  describe "slice / trim / loop", :ffmpeg do
+    # 位置がそのまま値になっている素材(-1.0から+1.0へ上がるだけの波形)。
+    # どこを切り出したかが、切り口の値で分かる。
+    def with_ramp(bars:, tempo: 174)
+      in_tmpdir do |dir|
+        frames = (bars * 4 * 60.0 / tempo * Muscript::SAMPLE_RATE).round
+        wave = Array.new(frames) { |i| (2.0 * i / frames) - 1.0 }
+        yield Muscript::Wav.write(File.join(dir, "ramp.wav"), wave, wave), frames
+      end
+    end
+
+    def clip(song) = song.tracks.first.events.first[:buf]
+
+    def bar_frames(bars, tempo: 174) = (bars * 4 * 60.0 / tempo * Muscript::SAMPLE_RATE).round
+
+    it "指定した小節から、指定した小節数だけ切り出す" do
+      with_ramp(bars: 4) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path; slice bars: 2, from: 3 }
+        end
+
+        expect(clip(song).length).to eq bar_frames(2)
+        expect(clip(song).first).to be_within(0.001).of(0.0) # 素材のちょうど半分の位置
+      end
+    end
+
+    it "loop times: で繰り返す" do
+      with_ramp(bars: 2) do |path, frames|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path; loop times: 4 }
+        end
+
+        expect(clip(song).length).to eq frames * 4
+        expect(clip(song)[frames]).to eq clip(song).first # 頭に戻っている
+      end
+    end
+
+    it "loop bars: で長さを埋める" do
+      with_ramp(bars: 2) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path; loop bars: 7 }
+        end
+
+        expect(clip(song).length).to eq bar_frames(7)
+      end
+    end
+
+    it "trim で区間を切り出す" do
+      with_ramp(bars: 4) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path; trim from: 2, to: 4 }
+        end
+
+        expect(clip(song).length).to eq bar_frames(2)
+        expect(clip(song).first).to be_within(0.001).of(-0.5) # 素材の1/4の位置
+      end
+    end
+
+    it "書いた順に掛かる（切ってから繰り返す）" do
+      with_ramp(bars: 4) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track :loop do
+            audio path
+            slice bars: 1, from: 2
+            loop times: 3
+          end
+        end
+
+        expect(clip(song).length).to eq bar_frames(1) * 3 # 1小節の切り出しが3つ
+        expect(clip(song)[bar_frames(1)]).to eq clip(song).first
+      end
+    end
+
+    it "同じトラックのステム全部に掛かる" do
+      with_ramp(bars: 4) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track :loop do
+            audio path
+            audio path
+            slice bars: 1
+          end
+        end
+
+        expect(song.tracks.first.events.map { |e| e[:buf].length }).to eq [bar_frames(1)] * 2
+      end
+    end
+
+    it "warp: false なら素材のテンポの小節で切る" do
+      with_ramp(bars: 4, tempo: 140) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path, bpm: 140, warp: false; slice bars: 2 }
+        end
+
+        expect(clip(song).length).to eq bar_frames(2, tempo: 140)
+      end
+    end
+
+    it "揃えたあとの小節で切る（切るのは伸ばした後）", :rubberband do
+      with_ramp(bars: 4, tempo: 140) do |path|
+        song = Muscript.project("s") do
+          bpm 174
+          track(:loop) { audio path, bpm: 140; slice bars: 2 }
+        end
+
+        expect(clip(song).length).to eq bar_frames(2)
+      end
+    end
+
+    it "ステムの無いトラックで使ったら、まだ効かないと教えて落ちる" do
+      expect { Muscript.project("s") { track(:bass) { notes %w[E1]; loop times: 4 } } }
+        .to raise_error(ArgumentError, /track :bass has no audio to slice \/ trim \/ loop/)
+    end
+
+    it "素材より長く切ろうとしたら、素材の長さを教えて落ちる" do
+      with_ramp(bars: 4) do |path|
+        expect { Muscript.project("s") { bpm 174; track(:loop) { audio path; slice bars: 8 } } }
+          .to raise_error(ArgumentError, /cannot cut 8 bars from bar 1: .+ is 4 bars at 174 BPM/)
+      end
+    end
+  end
+
   describe "pattern" do
     def drum_events(bars: 1, tempo: 120, &block)
       Muscript.project("s") do

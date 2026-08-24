@@ -62,7 +62,82 @@ RSpec.describe Muscript::Stem do
         .to raise_error(Muscript::Audio::Error, /audio file not found/)
     end
 
+    describe "playback_bpm（slice / loop の「1小節」の長さを決めるテンポ）" do
+      it "テンポを教えていない素材は、曲のテンポに乗っているものとみなす" do
+        with_stem do |path|
+          stem = described_class.new(path)
+          stem.resolve(project_bpm: 174)
+
+          expect(stem.playback_bpm).to eq 174.0
+        end
+      end
+
+      it "warp: false なら素材のテンポのまま" do
+        with_stem do |path|
+          stem = described_class.new(path, bpm: 140, warp: false)
+          stem.resolve(project_bpm: 174)
+
+          expect(stem.playback_bpm).to eq 140.0
+        end
+      end
+
+      it "揃えたなら揃えた先のテンポ", :rubberband do
+        with_stem do |path|
+          stem = described_class.new(path, bpm: 140)
+          stem.resolve(project_bpm: 174)
+
+          expect(stem.playback_bpm).to eq 174.0
+        end
+      end
+
+      it "warp_to があればそちらのテンポ", :rubberband do
+        with_stem do |path|
+          stem = described_class.new(path, bpm: 140)
+          stem.resolve(project_bpm: 174, warp_to: 87)
+
+          expect(stem.playback_bpm).to eq 87.0
+        end
+      end
+    end
+
+    describe "edits" do
+      # 240BPMなら1小節=1秒。1秒の素材がちょうど1小節ぶんになる。
+      it "読んだあとに、書いた順で掛ける" do
+        with_stem do |path|
+          edits = [Muscript::Edit.slice(beats: 2), Muscript::Edit.loop(times: 3)]
+
+          expect(resolved_length(described_class.new(path), project_bpm: 240, edits:))
+            .to eq (Muscript::SAMPLE_RATE * 0.5 * 3).round
+        end
+      end
+
+      it "warp: false のときは素材のテンポの小節で切る" do
+        with_stem(seconds: 4 * 60.0 / 140) do |path|
+          stem = described_class.new(path, bpm: 140, warp: false)
+
+          expect(resolved_length(stem, project_bpm: 174, edits: [Muscript::Edit.slice(bars: 1)]))
+            .to eq (4 * 60.0 / 140 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
+      it "素材より長く切ろうとしたら、素材の長さを教えて落ちる" do
+        with_stem do |path|
+          expect { described_class.new(path).resolve(project_bpm: 240, edits: [Muscript::Edit.slice(bars: 4)]) }
+            .to raise_error(ArgumentError, /is 1 bars at 240 BPM/)
+        end
+      end
+    end
+
     describe "warp", :rubberband do
+      it "揃えたあとの小節で切る（切るのは伸ばした後）" do
+        with_stem(seconds: 4 * 60.0 / 140) do |path|
+          stem = described_class.new(path, bpm: 140)
+
+          expect(resolved_length(stem, project_bpm: 174, edits: [Muscript::Edit.slice(bars: 1)]))
+            .to eq (4 * 60.0 / 174 * Muscript::SAMPLE_RATE).round
+        end
+      end
+
       it "素材のテンポをプロジェクトのテンポに合わせる" do
         with_stem do |path|
           expect(resolved_length(described_class.new(path, bpm: 140), project_bpm: 174))
