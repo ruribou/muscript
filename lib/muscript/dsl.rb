@@ -10,6 +10,13 @@ module Muscript
         @project.bpm = value
       end
 
+      # section :intro, bars: 8
+      # 曲の構造。書いた順に前のセクションの後ろへ並ぶ(イントロ→ビルド→ドロップ)。
+      # トラックはこの名前を `at :intro` で引くので、トラックより先に書く。
+      def section(name, bars: nil, beats: nil)
+        @project.add_section(name, bars:, beats:)
+      end
+
       def track(name, &block)
         t = Track.new(name)
         dsl = TrackDSL.new(@project, t)
@@ -19,14 +26,49 @@ module Muscript
       end
     end
 
+    # トラックの中の「いま書いている場所」。`at` で切り替わる。
+    # ひとつの at から次の at までがひと区切りで、そこに置いた audio と
+    # slice / trim / loop はセットとして扱う。span はセクションの残りの長さ(拍)。
+    class Placement
+      attr_reader :start, :span, :stems, :edits
+
+      def initialize(start: 0.0, span: nil)
+        @start = start
+        @span = span
+        @stems = []
+        @edits = []
+      end
+    end
+
     class TrackDSL
       def initialize(project, track)
         @project = project
         @track = track
-        @stems = []
-        @edits = []
+        @placements = [Placement.new]
         @warp_to = nil
         @transpose = 0.0
+      end
+
+      # at :drop            :drop セクションの頭に置く
+      # at :drop, bar: 3    :drop の3小節目
+      # at bar: 17          17小節目(曲の頭から数える)
+      #
+      # ここから下に書いた audio / notes / pattern が、その場所に置かれる。
+      # セクションを指したときは残りの長さも憶えるので、bars: を省いた pattern と
+      # loop がその長さを埋める(セクションを16小節に伸ばせば、鳴るほうも伸びる)。
+      def at(section = nil, bar: 1)
+        offset = Beats.position(bar)
+        return @placements << Placement.new(start: offset) if section.nil?
+
+        found = @project.section(section)
+        span = found.length - offset
+        unless span.positive?
+          raise ArgumentError,
+                format("cannot start at bar %g of section %p: it is %g bars long",
+                       bar, section, found.bars)
+        end
+
+        @placements << Placement.new(start: found.start + offset, span:)
       end
 
       def synth(shape)
@@ -51,7 +93,7 @@ module Muscript
       # 伸縮とピッチシフトをrubberbandに一度で渡すため。
       def audio(path, bpm: nil, warp: true)
         stem = Stem.new(path, bpm:, warp:)
-        @stems << stem
+        here.stems << stem
         stem
       end
 
@@ -72,35 +114,43 @@ module Muscript
       # 5小節目から8小節を切り出す。ここでいう小節は、そのステムが鳴っているテンポの小節
       # (warpしたなら曲のテンポ、warp: false なら素材のテンポ)。
       def slice(bars: nil, beats: nil, from: 1)
-        @edits << Edit.slice(bars:, beats:, from:)
+        here.edits << Edit.slice(bars:, beats:, from:)
       end
 
       # trim from: 3          頭の2小節を落として最後まで
       # trim from: 2, to: 6   2小節目から6小節目の手前まで(= 4小節)
       def trim(from: 1, to: nil)
-        @edits << Edit.trim(from:, to:)
+        here.edits << Edit.trim(from:, to:)
       end
 
       # loop times: 4   4回鳴らす
       # loop bars: 16   16小節ぶんになるまで繰り返す(端は途中で切る)
+      # loop            いま置いているセクションの残りを埋める(`at :drop` とセットで使う)
       # track ブロックの中の loop は Kernel#loop ではなくこちら。
       def loop(times: nil, bars: nil, beats: nil)
-        @edits << Edit.loop(times:, bars:, beats:)
+        here.edits << if times.nil? && bars.nil? && beats.nil?
+                        Edit.fill(beats: fill_beats)
+                      else
+                        Edit.loop(times:, bars:, beats:)
+                      end
       end
 
       # track ブロックを抜けたところで、ためたステムを読む。
       # warp_to / transpose はブロックのどこに書いても効くように、ここでまとめて適用する。
-      # slice / trim / loop も同じくトラックの設定で、書いた順にステム全部へ掛かる。
+      # slice / trim / loop は `at` で区切ったひと区切りの設定で、書いた順に
+      # その区切りのステム全部へ掛かる(区切りが無ければ、今までどおりトラック全体)。
       def resolve_stems!
-        if @stems.empty? && @edits.any?
-          raise ArgumentError,
-                "track #{@track.name.inspect} has no audio to slice / trim / loop (they do not apply to notes yet)"
-        end
+        @placements.each do |placement|
+          if placement.stems.empty? && placement.edits.any?
+            raise ArgumentError,
+                  "track #{@track.name.inspect} has no audio to slice / trim / loop (they do not apply to notes yet)"
+          end
 
-        @stems.each do |stem|
-          clip = stem.resolve(project_bpm: @project.bpm, warp_to: @warp_to,
-                              semitones: @transpose, edits: @edits)
-          @track.add_stereo(0, clip.left, clip.right)
+          placement.stems.each do |stem|
+            clip = stem.resolve(project_bpm: @project.bpm, warp_to: @warp_to,
+                                semitones: @transpose, edits: placement.edits)
+            @track.add_stereo(samples(placement.start), clip.left, clip.right)
+          end
         end
       end
 
@@ -108,11 +158,11 @@ module Muscript
       # "_" は休符。時間は拍(beat)で計算し、サンプルへの変換は最後に一度だけ。
       def notes(list, step: "1/16")
         step_beats = parse_step(step)
+        dur = (step_beats * @project.samples_per_beat * 0.9).round
         list.each_with_index do |n, i|
           next if n.nil? || n == "_"
-          at  = (i * step_beats * @project.samples_per_beat).round
-          dur = (step_beats * @project.samples_per_beat * 0.9).round
-          @track.add(at, Synth.tone(@track.synth_shape, Note.freq(n), dur))
+          @track.add(samples(here.start + (i * step_beats)),
+                     Synth.tone(@track.synth_shape, Note.freq(n), dur))
         end
       end
 
@@ -120,23 +170,48 @@ module Muscript
       #   kick "x---------x-----"
       # end
       # 1行 = 1小節。文字数がその小節の分割数になる(16文字なら16分)。
-      def pattern(bars: 1, &block)
+      # `at :drop` の下で bars: を省くと、そのセクションを埋めるまで繰り返す。
+      def pattern(bars: nil, &block)
         p = PatternDSL.new
         p.instance_eval(&block)
+        limit = bars.nil? ? here.span : nil # 埋める時だけ、はみ出す音を落とす
+        count = bars || fill_bars
+
         p.lines.each do |drum_name, steps|
           buf = Synth.drum(drum_name)
           divisions = steps.length
-          bars.times do |bar|
+          count.times do |bar|
             steps.each_char.with_index do |ch, i|
               next unless ch == "x" || ch == "X"
-              beat = bar * 4.0 + i * 4.0 / divisions
-              @track.add((beat * @project.samples_per_beat).round, buf)
+              beat = (bar * Beats::PER_BAR) + (i * Beats::PER_BAR / divisions)
+              next if limit && beat >= limit
+              @track.add(samples(here.start + beat), buf)
             end
           end
         end
       end
 
       private
+
+      # いま書いている場所。`at` を書いていなければ曲の頭(今までどおり)。
+      def here = @placements.last
+
+      # 拍 → サンプル。トラックの中で時間がサンプルになるのはここだけ。
+      def samples(beats) = Beats.samples(beats, bpm: @project.bpm)
+
+      # bars: を省いた pattern が何小節ぶん鳴るか。セクションの中なら、その長さを埋める。
+      def fill_bars
+        return 1 if here.span.nil?
+
+        here.span.fdiv(Beats::PER_BAR).ceil
+      end
+
+      # bars: も times: も無い loop が、どこまで埋めるか。
+      def fill_beats
+        here.span ||
+          raise(ArgumentError,
+                "loop needs times: or bars: here (a bare loop fills the section put by `at :drop`)")
+      end
 
       def parse_step(step)
         m = step.to_s.match(%r{\A(\d+)/(\d+)\z})

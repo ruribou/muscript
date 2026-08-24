@@ -199,8 +199,62 @@ demo-drums-174 | 1 tracks | 5.91s | peak 3.0 dBFS (normalized to -1dBFS) -> stem
 Clip Test | 2 tracks | 44.64s | peak -0.6 dBFS -> out/clip.wav
 ```
 
-クリップはまだ曲の頭にしか置けません。小節位置への配置とセクションは
-[#5](../../issues/5)、切れ目のフェードは [#6](../../issues/6) です。
+切り出した端のフェードとクリップ単位のgainは [#6](../../issues/6) です。
+
+## 曲に構造を書く
+
+イントロ→ドロップのような曲の構造は `section` で書きます。セクションは書いた順に前のセクションの
+後ろへ並ぶので、何小節目から始まるかを数える必要はありません。トラックの中の `at` がその名前を引いて、
+置き場所を決めます。
+
+```ruby
+song = Muscript.project "Arrange" do
+  bpm 174
+
+  section :intro, bars: 8
+  section :drop,  bars: 16
+
+  track :pad do
+    synth :sine
+    at :intro
+    notes %w[E3 B3 G3 B3], step: "2/1"
+  end
+
+  track :drums do
+    at :drop        # ここから下はドロップに置く
+    pattern do      # bars: を省くと、ドロップの16小節を埋める
+      kick  "x---------x-----"
+      snare "----x-------x---"
+      hat   "x-x-x-x-x-x-x-x-"
+    end
+  end
+
+  track :break do
+    at :drop
+    audio "stems/amen.wav", bpm: 140
+    slice bars: 4
+    loop            # セクションの残りを埋める
+  end
+end
+```
+
+- `at :drop` はセクションの頭、`at :drop, bar: 3` はその3小節目、`at bar: 17` は曲の17小節目です。
+- `at` から次の `at` までがひと区切りです。`slice` / `trim` / `loop` は、その区切りに置いたステムに掛かります。
+- 1本のトラックを複数のセクションに置けます（`at :intro` で書いて、`at :drop` でまた書く）。
+- `bars:` を省いた `pattern` と、長さを書かない `loop` は、セクションの長さを埋めます。
+  セクションを16小節から32小節に伸ばせば、鳴るほうも一緒に伸びます。
+- セクションは曲の尺にもなります。最後のセクションが無音でも、書いたぶんの長さでWAVを書きます。
+
+セクションを埋めるときだけは、曲の小節で数えます（`slice` の「1小節」は素材が鳴っているテンポの小節、
+というルールとは別扱いです。埋める先は素材ではなく曲だからです）。
+
+イントロ（ドラム無し）からドロップ（全トラック）へ落ちる例が `examples/arrange.rb` です。
+内蔵音源だけで鳴るので、ffmpegもrubberbandも要りません。
+
+```
+$ ruby examples/arrange.rb
+Arrange Test | 4 tracks | 2 sections | 33.60s | peak 3.3 dBFS (normalized to -1dBFS) -> out/arrange.wav
+```
 
 ## 開発
 
